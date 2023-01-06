@@ -1,0 +1,95 @@
+library(TwoSampleMR)
+micad <-read.table('a.txt',header=T)
+
+exp_dat <- format_data(
+  micad,
+  type='exposure',
+  snp_col = "SNP",
+  beta_col = "beta.exp",
+  se_col = "se.exp",
+  effect_allele_col ="EA",
+  other_allele_col = "OA",
+  pval_col = "pval.exp",
+  eaf_col="eaf.exp")
+
+exp <-clump_data(exp_dat,clump_r2=0.001,clump_kb=5000)
+
+exp <- extract_instruments(outcomes='ieu-a-835',
+                           clump=TRUE, r2=0.001,
+                           kb=5000,access_token = NULL)
+
+library(data.table)
+o <-fread('txt',header=T)
+
+o$se <-abs(o$Beta/qnorm(o$P/2,lower.tail=F))
+
+out <- format_data(
+  dat=o,
+  type = "outcome",
+  snps = exp$SNP,
+  header = TRUE,
+  phenotype_col = "phenotype",
+  snp_col = "UK10Kid",
+  beta_col = "Beta",
+  se_col = "SE",
+  effect_allele_col = "effectAllele",
+  other_allele_col = "otherAllele",
+  pval_col = "P",
+  eaf_col = "eaFrq",
+  chr_col = "chr",
+  pos_col = "bp")
+
+out <- extract_outcome_data(
+  snps=exp$SNP,
+  outcomes='ieu-a-73',
+  proxies = T,
+  maf_threshold = 0.01,
+  access_token = NULL)
+
+mydata <- harmonise_data(
+  exposure_dat=exp,
+  outcome_dat=out,
+  action= 2)
+
+write.table(mydata,file = "txt",sep = "\t",row.names = F)
+
+res <- mr(mydata,method_list=c("mr_egger_regression",
+                               "mr_weighted_median",
+                               "mr_ivw_mre",
+                               "mr_ivw_fe",
+                               "mr_two_sample_ml"))
+
+re <- generate_odds_ratios(res)
+
+write.table(re,file = "resultCs-R1.txt",sep = "\t",row.names = F)
+
+mr_scatter_plot(res,mydata)
+
+library(RadialMR)
+r_input <- format_radial(BXG = mydata$beta.exposure,
+                         BYG = mydata$beta.outcome,
+                         seBXG = mydata$se.exposure,
+                         seBYG = mydata$se.outcome, 
+                         RSID = mydata$SNP)
+
+result <- ivw_radial(r_input)
+
+plotly_radial(result)
+
+plot_radial(result)
+
+Q <- mr_heterogeneity(mydata)
+
+pleio <- mr_pleiotropy_test(mydata)
+
+single <- mr_leaveoneout(mydata)
+
+s <- generate_odds_ratios(single)
+
+mr_leaveoneout_plot(single)
+
+library(MRPRESSO)
+presso <- mr_presso(BetaOutcome ="beta.outcome", BetaExposure = "beta.exposure", 
+                    SdOutcome ="se.outcome", SdExposure = "se.exposure", 
+                    OUTLIERtest = TRUE,DISTORTIONtest = TRUE, data = mydata, NbDistribution = 1000,  
+                    SignifThreshold = 0.05)
